@@ -2074,6 +2074,16 @@ export type ConnectionConfig = {
 };
 
 /**
+ * The callback when websocket opened
+ */
+export type OnWSOpenCallback = () => void;
+
+/**
+ * The callback when websocket closed.
+ */
+export type OnWSCloseCallback = (errCode: number) => void;
+
+/**
  * A connection to a fullnode JSON RPC endpoint
  */
 export class Connection {
@@ -2092,6 +2102,9 @@ export class Connection {
   /** @internal */ _rpcWebSocketIdleTimeout: ReturnType<
     typeof setTimeout
   > | null = null;
+
+  /** @internal */ _onWSOpenCB: OnWSOpenCallback | undefined;
+  /** @internal */ _onWSCloseCB: OnWSCloseCallback | undefined;
 
   /** @internal */ _disableBlockhashCaching: boolean = false;
   /** @internal */ _pollingBlockhash: boolean = false;
@@ -2147,10 +2160,14 @@ export class Connection {
    *
    * @param endpoint URL to the fullnode JSON RPC endpoint
    * @param commitmentOrConfig optional default commitment level or optional ConnectionConfig configuration object
+   * @param onWSOpen optional callback when websocket open
+   * @param onWSClose optional callback when websocket close
    */
   constructor(
     endpoint: string,
     commitmentOrConfig?: Commitment | ConnectionConfig,
+    onWSOpen?: OnWSOpenCallback,
+    onWSClose?: OnWSCloseCallback,
   ) {
     let url = new URL(endpoint);
     const useHttps = url.protocol === 'https:';
@@ -2219,6 +2236,9 @@ export class Connection {
       'logsNotification',
       this._wsOnLogsNotification.bind(this),
     );
+
+    this._onWSOpenCB = onWSOpen;
+    this._onWSCloseCB = onWSClose;
   }
 
   /**
@@ -3975,6 +3995,7 @@ export class Connection {
       // Ping server every 5s to prevent idle timeouts
       this._rpcWebSocket.notify('ping').catch(() => {});
     }, 5000);
+    if (this._onWSOpenCB) this._onWSOpenCB();
     this._updateSubscriptions();
   }
 
@@ -3993,6 +4014,8 @@ export class Connection {
       clearInterval(this._rpcWebSocketHeartbeat);
       this._rpcWebSocketHeartbeat = null;
     }
+
+    if (this._onWSCloseCB) this._onWSCloseCB(code);
 
     if (code === 1000) {
       // explicit close, check if any subscriptions have been made since close
